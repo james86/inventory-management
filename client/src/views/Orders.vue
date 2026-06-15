@@ -27,6 +27,39 @@
         </div>
       </div>
 
+      <div v-if="submittedOrders.length" class="card">
+        <div class="card-header">
+          <h3 class="card-title">{{ t('orders.submittedOrders.title') }}</h3>
+          <p class="card-description">{{ t('orders.submittedOrders.description') }}</p>
+        </div>
+        <div class="table-container">
+          <table class="orders-table">
+            <thead>
+              <tr>
+                <th>{{ t('orders.submittedOrders.orderNumber') }}</th>
+                <th>{{ t('orders.submittedOrders.dateSubmitted') }}</th>
+                <th>{{ t('orders.submittedOrders.items') }}</th>
+                <th>{{ t('orders.submittedOrders.totalValue') }}</th>
+                <th>{{ t('orders.submittedOrders.leadTime') }}</th>
+                <th>{{ t('orders.submittedOrders.expectedDelivery') }}</th>
+                <th>{{ t('orders.submittedOrders.status') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="order in submittedOrders" :key="order.id">
+                <td><strong>{{ order.order_number }}</strong></td>
+                <td>{{ formatDate(order.order_date) }}</td>
+                <td>{{ order.item_count }}</td>
+                <td><strong>{{ currencySymbol }}{{ order.total_value.toLocaleString() }}</strong></td>
+                <td>{{ t('orders.submittedOrders.days', { count: order.lead_time_days }) }}</td>
+                <td>{{ formatDate(order.expected_delivery) }}</td>
+                <td><span class="badge info">{{ t(`status.${order.status.toLowerCase()}`) }}</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <div class="card">
         <div class="card-header">
           <h3 class="card-title">{{ t('orders.allOrders') }} ({{ orders.length }})</h3>
@@ -95,6 +128,7 @@ export default {
     const loading = ref(true)
     const error = ref(null)
     const orders = ref([])
+    const submittedOrders = ref([])
 
     // Use shared filters
     const {
@@ -144,22 +178,36 @@ export default {
     }
 
     const formatDate = (dateString) => {
+      const date = new Date(dateString)
+      if (isNaN(date.getTime())) return '-'
       const { currentLocale } = useI18n()
       const locale = currentLocale.value === 'ja' ? 'ja-JP' : 'en-US'
-      return new Date(dateString).toLocaleDateString(locale, {
+      return date.toLocaleDateString(locale, {
         year: 'numeric',
         month: 'short',
         day: 'numeric'
       })
     }
 
-    onMounted(loadOrders)
+    const loadSubmittedOrders = async () => {
+      try {
+        submittedOrders.value = await api.getRestockOrders()
+      } catch (err) {
+        submittedOrders.value = []
+      }
+    }
+
+    onMounted(() => {
+      loadOrders()
+      loadSubmittedOrders()
+    })
 
     return {
       t,
       loading,
       error,
       orders,
+      submittedOrders,
       getOrdersByStatus,
       getOrderStatusClass,
       formatDate,
@@ -172,6 +220,12 @@ export default {
 </script>
 
 <style scoped>
+.card-description {
+  margin: 0.25rem 0 0;
+  font-size: 0.875rem;
+  color: #64748b;
+}
+
 /* Fixed table layout to prevent column shifting */
 .orders-table {
   table-layout: fixed;
