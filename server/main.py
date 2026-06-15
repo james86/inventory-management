@@ -1,8 +1,12 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional
+from datetime import datetime, timedelta
 from pydantic import BaseModel
-from mock_data import inventory_items, orders, demand_forecasts, backlog_items, spending_summary, monthly_spending, category_spending, recent_transactions, purchase_orders
+from mock_data import inventory_items, orders, demand_forecasts, backlog_items, spending_summary, monthly_spending, category_spending, recent_transactions, purchase_orders, submitted_orders
+
+# Fixed delivery lead time (days) applied to every submitted restocking order.
+RESTOCK_LEAD_TIME_DAYS = 14
 
 app = FastAPI(title="Factory Inventory Management System")
 
@@ -89,6 +93,7 @@ class DemandForecast(BaseModel):
     forecasted_demand: int
     trend: str
     period: str
+    unit_cost: Optional[float] = None
 
 class BacklogItem(BaseModel):
     id: str
@@ -119,6 +124,28 @@ class CreatePurchaseOrderRequest(BaseModel):
     unit_cost: float
     expected_delivery_date: str
     notes: Optional[str] = None
+
+class RestockOrderItem(BaseModel):
+    item_sku: str
+    item_name: str
+    quantity: int
+    unit_cost: float
+
+class CreateRestockOrderRequest(BaseModel):
+    budget: float
+    items: List[RestockOrderItem]
+
+class SubmittedOrder(BaseModel):
+    id: str
+    order_number: str
+    order_date: str
+    expected_delivery: str
+    lead_time_days: int
+    status: str
+    budget: float
+    total_value: float
+    item_count: int
+    items: List[RestockOrderItem]
 
 # API endpoints
 @app.get("/")
@@ -303,6 +330,37 @@ def get_monthly_trends():
     result = list(months.values())
     result.sort(key=lambda x: x['month'])
     return result
+
+@app.get("/api/restock-orders", response_model=List[SubmittedOrder])
+def get_restock_orders():
+    """Get restocking orders submitted via the Restocking tab (newest first)."""
+    return list(reversed(submitted_orders))
+
+@app.post("/api/restock-orders", response_model=SubmittedOrder)
+def create_restock_order(request: CreateRestockOrderRequest):
+    """Submit a restocking order. Builds an order with a fixed delivery lead
+    time and appends it to the in-memory submitted_orders list."""
+    if not request.items:
+        raise HTTPException(status_code=400, detail="No items selected for restocking")
+
+    now = datetime.now()
+    expected_delivery = now + timedelta(days=RESTOCK_LEAD_TIME_DAYS)
+    total_value = sum(item.quantity * item.unit_cost for item in request.items)
+
+    submitted_order = {
+        "id": str(len(submitted_orders) + 1),
+        "order_number": "RESTOCK-2025-{:04d}".format(len(submitted_orders) + 1),
+        "order_date": now.isoformat(timespec="seconds"),
+        "expected_delivery": expected_delivery.isoformat(timespec="seconds"),
+        "lead_time_days": RESTOCK_LEAD_TIME_DAYS,
+        "status": "Submitted",
+        "budget": request.budget,
+        "total_value": round(total_value, 2),
+        "item_count": len(request.items),
+        "items": [item.dict() for item in request.items],
+    }
+    submitted_orders.append(submitted_order)
+    return submitted_order
 
 if __name__ == "__main__":
     import uvicorn
